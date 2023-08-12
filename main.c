@@ -1,3 +1,5 @@
+// Right now program is only a simple one with 2 button and quit option
+
 #include <gtk/gtk.h>
 
 static void
