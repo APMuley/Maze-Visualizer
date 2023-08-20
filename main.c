@@ -1,7 +1,5 @@
 #include <gtk/gtk.h>
-#include <pthread.h>
 #include <cairo.h>
-#include <unistd.h>
 
 // Defines the colors according to rgb standards
 #define COLOUR(a,b) cairo_set_source_rgb(a, b.red, b.green, b.blue)
