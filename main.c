@@ -1,77 +1,170 @@
-// Right now program is only a simple one with 2 button and quit option
-
 #include <gtk/gtk.h>
+#include <pthread.h>
+#include <cairo.h>
+#include <unistd.h>
 
-static void
-print_hello (GtkWidget *widget,
-             gpointer   data)
-{
-  g_print ("Hello World\n");
+// Defines the colors according to rgb standards
+#define COLOUR(a,b) cairo_set_source_rgb(a, b.red, b.green, b.blue)
+
+// Structures for coordinates, color codes and presets
+typedef struct {
+  int x;
+  int y;
+} coordinate;
+
+typedef struct {
+  double red;
+  double green;
+  double blue;
+}colour_codes;
+
+typedef struct{
+  int *p;
+  char *config_file;
+}preset_packet;
+
+// Columns, Rows, Nodes, Colors, Height, Width, Block Size
+int columns=400;
+int rows=400;
+
+char DRAW_NONE = 0,
+     DRAW_WALL = 1,
+     DRAW_STRT = 4,
+     DRAW_END = 8;
+
+coordinate strt_node={3,3}, end_node={17,17};
+colour_codes NONE_CLR ={1.00, 1.00, 1.00},// white
+             STRT_CLR ={0.25, 0.63, 0.09},// green
+             END_CLR  ={1.00, 0.00, 0.00},// red
+             BRDR_CLR ={0.11, 0.11, 0.11};// grey
+
+int BLK_sz = 25;
+int width = 1500, height = 1555;
+
+char * config_file="visualizer_config.txt";
+
+// Declaration of functions
+static gboolean on_draw_event (GtkWidget *, cairo_t *, gpointer);
+static void draw_grid (cairo_t *);
+static void draw_nodes (cairo_t *, int(*)[402]);
+static void set_grid(gpointer);
+
+
+// Widgets for window, box and drawing area
+GtkWidget *window;
+GtkWidget *box1;
+GtkWidget *darea;
+
+// This function is used to draw the entire grid board 
+static gboolean on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data){
+  // grid for nodes using preset packet
+  int (*node_grid)[402] = (int (*)[402])(((preset_packet *)user_data)->p);
+
+  // get the window settings and dimensions
+  GtkWidget *win = gtk_widget_get_toplevel(widget);
+  gtk_window_get_size(GTK_WINDOW(win), &width, &height);
+  height-=55;
+
+  // Get the block size which is height divided by rows
+  BLK_sz = height/rows;
+  
+  // Draw nodes and grid
+  draw_nodes(cr, node_grid);
+  draw_grid(cr);
+
+  return FALSE;
 }
 
-static void
-activate (GtkApplication *app,
-          gpointer        user_data)
-{
-  GtkWidget *window;
-  GtkWidget *grid;
-  GtkWidget *button;
+// This sets the grid up with all the necessary block such as 
+// start node, end node, wall blocks, etc
+static void set_grid(gpointer user_data){
+  int (*node_grid)[402] = (int (*)[402])(((preset_packet *)user_data)->p);
 
-  /* create a new window, and set its title */
-  window = gtk_application_window_new (app);
-  gtk_window_set_title (GTK_WINDOW (window), "Window");
-  gtk_container_set_border_width (GTK_CONTAINER (window), 10);
+  for(int i=0;i< 402;i++)
+    for(int j=0;j< 402;j++)
+      node_grid[i][j] = (i==0||j==0 || i==401||j==401)?DRAW_WALL:DRAW_NONE;
+      // These are the border points to set the color equal to wall or none
 
-  /* Here we construct the container that is going pack our buttons */
-  grid = gtk_grid_new ();
-
-  /* Pack the container in the window */
-  gtk_container_add (GTK_CONTAINER (window), grid);
-
-  button = gtk_button_new_with_label ("Button 1");
-  g_signal_connect (button, "clicked", G_CALLBACK (print_hello), NULL);
-
-  /* Place the first button in the grid cell (0, 0), and make it fill
-   * just 1 cell horizontally and vertically (ie no spanning)
-   */
-  gtk_grid_attach (GTK_GRID (grid), button, 0, 0, 1, 1);
-
-  button = gtk_button_new_with_label ("Button 2");
-  g_signal_connect (button, "clicked", G_CALLBACK (print_hello), NULL);
-
-  /* Place the second button in the grid cell (1, 0), and make it fill
-   * just 1 cell horizontally and vertically (ie no spanning)
-   */
-  gtk_grid_attach (GTK_GRID (grid), button, 1, 0, 1, 1);
-
-  button = gtk_button_new_with_label ("Quit");
-  g_signal_connect_swapped (button, "clicked", G_CALLBACK (gtk_widget_destroy), window);
-
-  /* Place the Quit button in the grid cell (0, 1), and make it
-   * span 2 columns.
-   */
-  gtk_grid_attach (GTK_GRID (grid), button, 0, 1, 2, 1);
-
-  /* Now that we are done packing our widgets, we show them all
-   * in one go, by calling gtk_widget_show_all() on the window.
-   * This call recursively calls gtk_widget_show() on all widgets
-   * that are contained in the window, directly or indirectly.
-   */
-  gtk_widget_show_all (window);
-
+  // Set the start and end node in the grid
+  node_grid[strt_node.y][strt_node.x] = DRAW_STRT;
+  node_grid[end_node.y][end_node.x] = DRAW_END;
 }
 
-int
-main (int    argc,
-      char **argv)
-{
-  GtkApplication *app;
-  int status;
+// A function used to draw lines for grid
+static void draw_grid(cairo_t *cr){
+  COLOUR(cr,BRDR_CLR);
+  for(int i=0;i<=columns;i++){
 
-  app = gtk_application_new ("org.gtk.example", G_APPLICATION_DEFAULT_FLAGS);
-  g_signal_connect (app, "activate", G_CALLBACK (activate), NULL);
-  status = g_application_run (G_APPLICATION (app), argc, argv);
-  g_object_unref (app);
+    // Set the cursor properly
+    cairo_move_to(cr,i*BLK_sz,0);
 
-  return status;
+    // Draw the line according to given dimensions
+    cairo_line_to(cr,i*BLK_sz,rows*BLK_sz);
+  }
+
+  for(int i=0;i<=rows;i++){
+    cairo_move_to(cr,0,i*BLK_sz);
+    cairo_line_to(cr,columns*BLK_sz,i*BLK_sz);
+  }
+
+  cairo_stroke(cr);
+}
+
+// This function is used to draw the nodes onto the screen itself
+static void draw_nodes(cairo_t *cr, int node_grid[402][402]){
+  for(int i=1;i<=rows;i++){
+    for(int j=1;j<=columns;j++){
+      // If the grid says to draw nothing
+      if(node_grid[i][j]==DRAW_NONE)continue;
+
+      // If the grid has start node, end node or none
+      if(i==strt_node.y && j==strt_node.x)COLOUR(cr,STRT_CLR);
+      else if(i==end_node.y && j==end_node.x)COLOUR(cr,END_CLR);
+      else COLOUR(cr,NONE_CLR);
+
+      // Repaint the grid
+      cairo_rectangle(cr, (j-1)*BLK_sz, (i-1)*BLK_sz , BLK_sz, BLK_sz);
+      cairo_fill(cr);
+    }
+  }
+
+  cairo_stroke(cr);
+}
+
+int main(int argc, char *argv[]) {
+  preset_packet presets;
+  presets.config_file=config_file;
+  presets.p=malloc(sizeof(int)*402*402);
+
+  gtk_init(&argc, &argv);
+
+  // Set the grid up with nodes
+  set_grid(&presets);
+  srand(time(0));
+
+  // Making a window widget and setting it up with position, size and label
+  window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
+  gtk_window_set_default_size(GTK_WINDOW(window), width, height); 
+  gtk_window_set_title(GTK_WINDOW(window), "MazeVisualizer");
+
+  // Make a box, drawing area and add them to the window
+  box1 = gtk_box_new(GTK_ORIENTATION_VERTICAL,0);
+  gtk_container_add(GTK_CONTAINER(window), box1);
+  
+  darea = gtk_drawing_area_new();
+  gtk_box_pack_start(GTK_BOX(box1),darea,TRUE, TRUE,0);
+
+  // Drawing and exiting function for drawing board and window
+  g_signal_connect(G_OBJECT(darea), "draw", G_CALLBACK(on_draw_event), &presets);
+  g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(gtk_main_quit), NULL);
+
+  rows = 60;
+  columns = 60;
+  set_grid(&presets); 
+
+  gtk_widget_show_all(window);
+  gtk_main();
+
+  return 0;
 }
