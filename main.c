@@ -32,12 +32,15 @@ char DRAW_NONE = 0,
 
 coordinate strt_node={3,3}, end_node={17,17};
 colour_codes NONE_CLR ={1.00, 1.00, 1.00},// white
-             STRT_CLR ={0.25, 0.63, 0.09},// green
+             STRT_CLR ={0.11, 0.88, 0.00},// green
              END_CLR  ={1.00, 0.00, 0.00},// red
+             WALL_CLR ={0.00, 0.00, 0.00},
              BRDR_CLR ={0.11, 0.11, 0.11};// grey
 
 int BLK_sz = 25;
 int width = 1500, height = 1555;
+int btn_pressed=0, node_flag=1;
+int terminal_node=1, wall_node=2;
 
 char * config_file="visualizer_config.txt";
 
@@ -47,11 +50,13 @@ static void draw_grid (cairo_t *);
 static void draw_nodes (cairo_t *, int(*)[402]);
 static void set_grid(gpointer);
 
-
 // Widgets for window, box and drawing area
 GtkWidget *window;
 GtkWidget *box1;
 GtkWidget *darea;
+GtkWidget *tool_bar;
+GtkToolButton *stend_btn;
+GtkToolButton *wall_button;
 
 // This function is used to draw the entire grid board 
 static gboolean on_draw_event(GtkWidget *widget, cairo_t *cr, gpointer user_data){
@@ -118,6 +123,7 @@ static void draw_nodes(cairo_t *cr, int node_grid[402][402]){
       // If the grid has start node, end node or none
       if(i==strt_node.y && j==strt_node.x)COLOUR(cr,STRT_CLR);
       else if(i==end_node.y && j==end_node.x)COLOUR(cr,END_CLR);
+      else if(node_grid[i][j]&DRAW_WALL)COLOUR(cr,WALL_CLR);
       else COLOUR(cr,NONE_CLR);
 
       // Repaint the grid
@@ -127,6 +133,70 @@ static void draw_nodes(cairo_t *cr, int node_grid[402][402]){
   }
 
   cairo_stroke(cr);
+}
+
+// Functions to color the nodes when clicked (mouse button)
+static gboolean button_up(GtkWidget *widget, GdkEventButton *event, gpointer user_data){
+  btn_pressed=0;
+}
+static gboolean button_down(GtkWidget *widget, GdkEventButton *event, gpointer user_data){
+  // Getting grid of nodes
+  int (*node_grid)[402] = (int (*)[402])(((preset_packet *)user_data)->p);
+
+  // Getting x and y coordinates of block that was clicked
+  int x = ((int)event->x)/BLK_sz+1,
+      y = ((int)(event->y))/BLK_sz+1;
+  btn_pressed=event->button;
+
+  // Node flag 1 for start and stop button drawing
+  if(node_flag==terminal_node){
+    // Events to set the start and end node according using 
+    // right and left click to set them
+    // 1 for left click and 3 for right click
+    if(event->button==1 && (end_node.x!=x || end_node.y!=y)){
+        strt_node.x=x;
+        strt_node.y=y-2;
+        node_grid[y-2][x]=DRAW_STRT;
+    }else if(event->button==3 && (strt_node.x!=x || strt_node.y!=y)){
+        end_node.x=x;
+        end_node.y=y-2;
+        node_grid[y-2][x]=DRAW_END;
+    }
+
+  } else if(node_flag == 2){
+      // 2 for drawing walls and stuff
+      if((strt_node.x!=x || strt_node.y!=y) && (end_node.x!=x || end_node.y!=y)){
+        if(event->button==1)
+          node_grid[y-2][x]=DRAW_WALL;
+        else if(event->button==3)
+          node_grid[y-2][x]=DRAW_NONE;
+      }
+  }
+  
+  gtk_widget_queue_draw(widget);
+  return TRUE;
+}
+
+// A function to toggle the node buttons between wall and start/end node selector
+static void toogle_node(GtkToggleToolButton* self, gpointer user_data){
+  switch(*(int *)user_data) {
+    case 1:{
+      // Set terminal node setting and deactivate wall nodes
+      if(gtk_toggle_tool_button_get_active((GtkToggleToolButton*)stend_btn)){
+        node_flag=terminal_node;
+        gtk_toggle_tool_button_set_active((GtkToggleToolButton*)wall_button,FALSE);
+      }
+      break;
+    }
+    case 2:{
+      // Set wall node setting and deactivate terminal nodes
+      if(gtk_toggle_tool_button_get_active((GtkToggleToolButton*)wall_button)){
+        node_flag=wall_node;
+        gtk_toggle_tool_button_set_active((GtkToggleToolButton*)stend_btn,FALSE);
+      }
+      break;
+    }
+  } 
 }
 
 int main(int argc, char *argv[]) {
@@ -151,14 +221,33 @@ int main(int argc, char *argv[]) {
   gtk_container_add(GTK_CONTAINER(window), box1);
   
   darea = gtk_drawing_area_new();
+
+  // A tool bar told hold everything
+  tool_bar = gtk_toolbar_new();
+  gtk_toolbar_set_style(GTK_TOOLBAR(tool_bar), GTK_TOOLBAR_BOTH);
+
+  // Buttons to toggle wall mode or start/end mode
+  stend_btn = (GtkToolButton *)gtk_toggle_tool_button_new();
+  gtk_tool_button_set_label(stend_btn,"Start/End");
+  gtk_toolbar_insert(GTK_TOOLBAR(tool_bar), (GtkToolItem *)stend_btn, -1);
+
+  wall_button = (GtkToolButton *)gtk_toggle_tool_button_new();
+  gtk_tool_button_set_label(wall_button,"Wall");
+  gtk_toolbar_insert(GTK_TOOLBAR(tool_bar), (GtkToolItem *)wall_button, -1);
+  
+  gtk_box_pack_start(GTK_BOX(box1),tool_bar,FALSE, FALSE,0);
   gtk_box_pack_start(GTK_BOX(box1),darea,TRUE, TRUE,0);
 
   // Drawing and exiting function for drawing board and window
   g_signal_connect(G_OBJECT(darea), "draw", G_CALLBACK(on_draw_event), &presets);
+  g_signal_connect(window, "button-press-event", G_CALLBACK(button_down), &presets);
+  g_signal_connect(window, "button-release-event", G_CALLBACK(button_up), NULL);
+  g_signal_connect(G_OBJECT(stend_btn), "toggled",G_CALLBACK(toogle_node), &terminal_node);
+  g_signal_connect(G_OBJECT(wall_button), "toggled",G_CALLBACK(toogle_node), &wall_node);
   g_signal_connect(G_OBJECT(window), "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-  rows = 60;
-  columns = 60;
+  rows = 40;
+  columns = 40;
   set_grid(&presets); 
 
   gtk_widget_show_all(window);
